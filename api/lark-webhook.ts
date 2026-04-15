@@ -1,9 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { Resend } from 'resend';
 
 // ==================== 設定 ====================
 const LARK_APP_ID     = process.env.LARK_APP_ID     || 'cli_a95e55ea22a19e18';
 const LARK_APP_SECRET = process.env.LARK_APP_SECRET || '77R4UsD3V9yoIzJKaFwcdhtpQl5gsOUa';
 const LARK_TABLE_ID   = process.env.LARK_TABLE_ID   || 'tblsi0HfqNtxj46W';
+const RESEND_API_KEY  = process.env.RESEND_API_KEY  || 're_749biiA7_7ZChV5CUbRzexeHM5S6aNc1r';
+const EMAIL_TO        = 'jump@pocketpro.tw';
+const EMAIL_FROM      = 'PocketPro <onboarding@get-pocketpro.com>';
 
 // Google Drive
 const DRIVE_FOLDER_ID = '1DRCiiofdzzGXZeEYSpfUmdbPva84DfRA';
@@ -104,6 +108,62 @@ async function uploadPDFToDrive(pdfBuffer: Buffer, pdfName: string): Promise<str
   } catch (e) { console.error('[Drive] Error:', e); return null; }
 }
 
+// ==================== Email（Resend）====================
+async function sendEmail(pdfBuffer: Buffer, pdfName: string, clientName: string): Promise<void> {
+  try {
+    const resend = new Resend(RESEND_API_KEY);
+    const today = new Date().toLocaleDateString('zh-TW');
+    const { error } = await resend.emails.send({
+      from: EMAIL_FROM,
+      to: EMAIL_TO,
+      subject: `📋 麥好室冷氣報價單｜${clientName}｜${today}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #1a3c5e; color: white; padding: 20px; text-align: center;">
+            <h2 style="margin:0;">❄️ 麥好室冷氣報價單</h2>
+            <p style="margin:5px 0 0; opacity: 0.8;">PocketPro 自動化系統</p>
+          </div>
+          <div style="padding: 24px; background: #f9fafb;">
+            <p>您好，</p>
+            <p>收到一筆新的冷氣報價單，詳細資料請參閱附件 PDF。</p>
+            <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+              <tr>
+                <td style="padding: 8px 12px; color: #666;">客戶名稱</td>
+                <td style="padding: 8px 12px; font-weight: bold;">${clientName}</td>
+              </tr>
+              <tr style="background: #f0f4f8;">
+                <td style="padding: 8px 12px; color: #666;">報價日期</td>
+                <td style="padding: 8px 12px;">${today}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 12px; color: #666;">PDF 附件</td>
+                <td style="padding: 8px 12px;">📎 ${pdfName}</td>
+              </tr>
+            </table>
+            <p style="color: #888; font-size: 12px; margin-top: 20px;">
+              此為系統自動發送，請勿直接回覆。如有問題請聯繫管管數位。
+            </p>
+          </div>
+        </div>
+      `,
+      attachments: [
+        {
+          filename: pdfName,
+          content: pdfBuffer.toString('base64'),
+        },
+      ],
+    });
+
+    if (error) {
+      console.error('[Email] Resend error:', error);
+    } else {
+      console.log('[Email] Sent successfully to', EMAIL_TO);
+    }
+  } catch (e) {
+    console.error('[Email] Exception:', e);
+  }
+}
+
 // ==================== Lark ====================
 async function getLarkToken(): Promise<string | null> {
   try {
@@ -150,7 +210,6 @@ async function generatePDFBuffer(fields: Record<string, unknown>): Promise<Buffe
     const sales = String(fields['業務人員'] || '-');
     const today = new Date().toLocaleDateString('zh-TW');
 
-    // 抬頭
     doc.rect(0, 0, 210, 40).fill('#1a3c5e');
     doc.fillColor('#fff').fontSize(16).font('Helvetica-Bold');
     doc.text('冷氣工程報價單', 20, 12);
@@ -238,8 +297,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const pdfBuffer = await generatePDFBuffer(data);
-    const pdfName = `報價單_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.pdf`;
+    const clientName = String(data['客戶名稱'] || '新報價單');
+    const pdfName = `報價單_${clientName}_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.pdf`;
+
     const driveLink = await uploadPDFToDrive(pdfBuffer, pdfName);
+    await sendEmail(pdfBuffer, pdfName, clientName);
 
     return res.status(200).json({
       success: true,

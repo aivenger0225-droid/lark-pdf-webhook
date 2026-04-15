@@ -1,0 +1,9 @@
+{
+  "name": "lark-pdf-webhook",
+  "version": "2.0.0",
+  "dependencies": {
+    "@vercel/node": "^3.0.0",
+    "pdfkit": "^0.14.0",
+    "resend": "^3.0.0"
+  }
+}
