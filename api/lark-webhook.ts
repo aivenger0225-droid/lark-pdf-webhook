@@ -1,18 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { Resend } from 'resend';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import PDFDocument from 'pdfkit';
 import * as fs from 'fs';
 import * as path from 'path';
 
 // ==================== 設定 ====================
 const LARK_APP_ID     = process.env.LARK_APP_ID     || 'cli_a95e55ea22a19e18';
-const LARK_APP_SECRET = process.env.LARK_APP_SECRET || '77R4UsD3V9yoIzJKaFwcdhtpQl5gsOUa';
+const LARK_APP_SECRET = process.env.LARK_APP_SECRET || '77R4UsD3V9yoIzJKaFwcdhtpQl5GsOUa';
 const LARK_TABLE_ID   = process.env.LARK_TABLE_ID   || 'tblsi0HfqNtxj46W';
 const RESEND_API_KEY  = process.env.RESEND_API_KEY  || 're_749biiA7_7ZChV5CUbRzexeHM5S6aNc1r';
-const EMAIL_TO         = 'jump@pocketpro.tw';
+const EMAIL_TO        = 'jump@pocketpro.tw';
 const EMAIL_FROM      = 'PocketPro <onboarding@get-pocketpro.com>';
 
-// Google Drive
 const DRIVE_FOLDER_ID = '1DRCiiofdzzGXZeEYSpfUmdbPva84DfRA';
 const SERVICE_ACCOUNT_EMAIL = 'pocketpro-sheet@project-d61f7947-3913-4800-b08.iam.gserviceaccount.com';
 const SERVICE_ACCOUNT_KEY = `-----BEGIN PRIVATE KEY-----
@@ -39,32 +38,17 @@ b/dhyC4PkPcwTOfYi6GadLI2nR/PBlfwVY+/b6AWs04TyfBqrFmNjcYdAoGAAxAA
 o0i1XRNlRuZnVu2M4x6AekM/jddQktHQtl6ivvx/gWzyIGoDMRhXmOUu5xAz23xm
 6nkcB1bzyYHGngc6S7K4V1cIcuFhGoEPlNRBzY+CcnR0Y6Wv6t8bD00dwofgAOSH
 UHnHVWig9QYC7oGno5k6pVC0TUhVgZ+AtkQzHhECgYA+C91PBv6MxJ6A/TSUjbWh
-EECnzio31464VQJn2zLNSeQp8kdfkQ+jaBBF8c6to8HYTpEuBB6Zib4xp49ZdhC
+EECnzio31464VQJn2zLNSeQp8kdfkKQ+jaBBF8c6to8HYTpEuBB6Zib4xp49ZdhC
 9s4hIrq8oO51SQmYxRbWgcUrnEI6b+dI/QQjHxHVsOkC5iKsit25iFqNP7mA0Bfl
 EaaIeswNF+nhhoBbOpLeeQ==
 -----END PRIVATE KEY-----`;
 
 export const dynamic = 'force-dynamic';
 
-// ==================== 共享 PDF 產生器（快取字體）====================
-let _cachedFont: Uint8Array | null = null;
-async function getChineseFont(): Promise<Uint8Array> {
-  if (!_cachedFont) {
-    _cachedFont = fs.readFileSync(path.join(__dirname, '..', 'NotoSansTC.otf'));
-    console.log('[Font] Loaded, size:', _cachedFont.length);
-  }
-  return _cachedFont;
-}
-
-// ==================== 工具函式 ====================
 function setCors(res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-}
-
-function tx(doc: any, text: string, x: number, y: number, size: number, font: any, color = rgb(0,0,0)) {
-  doc.drawText(text, { x, y, size, font, color });
 }
 
 // ==================== Google Drive ====================
@@ -79,7 +63,8 @@ async function getDriveAccessToken(): Promise<string> {
   })).toString('base64url');
   const signed = header + '.' + payload;
   const pemKey = Buffer.from(
-    SERVICE_ACCOUNT_KEY.replace(/-----BEGIN PRIVATE KEY-----/,'').replace(/-----END PRIVATE KEY-----/,'').replace(/\n/g,''), 'base64'
+    SERVICE_ACCOUNT_KEY.replace(/-----BEGIN PRIVATE KEY-----/,'').replace(/-----END PRIVATE KEY-----/,'').replace(/\n/g,''),
+    'base64'
   );
   const signKey = await crypto.subtle.importKey('pkcs8', pemKey, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
   const sig = Buffer.from(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', signKey, Buffer.from(signed))).toString('base64url');
@@ -148,9 +133,9 @@ async function sendEmail(pdfBuffer: Buffer, pdfName: string, clientName: string)
       `,
       attachments: [{ filename: pdfName, content: pdfBuffer.toString('base64') }],
     });
-    if (error) console.error('[Email] Resend error:', error);
-    else console.log('[Email] Sent to', EMAIL_TO);
-  } catch (e) { console.error('[Email] Exception:', e); }
+    if (error) console.error('[Email] error:', error);
+    else console.log('[Email] sent to', EMAIL_TO);
+  } catch (e) { console.error('[Email] exception:', e); }
 }
 
 // ==================== Lark ====================
@@ -183,80 +168,87 @@ async function updateStatus(token: string, id: string): Promise<void> {
   } catch { /* ignore */ }
 }
 
-// ==================== PDF（使用 NotoSansTC 中文字體）====================
+// ==================== PDF（pdfkit + 中文字體）====================
 async function generatePDFBuffer(fields: Record<string, unknown>): Promise<Buffer> {
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595.28, 841.89]);
-  const fontBytes = await getChineseFont();
-  const font = await pdfDoc.embedFont(fontBytes);
+  const fontPath = path.join(process.cwd(), 'NotoSansTC.otf');
+  const fontBytes = fs.readFileSync(fontPath);
 
-  const W = 595.28, H = 841.89;
-  const brand  = String(fields['品牌'] || '（未指定）');
-  const client = String(fields['客戶名稱'] || '-');
-  const project = String(fields['建案名稱'] || '-');
-  const sales  = String(fields['業務人員'] || '-');
-  const phone  = String(fields['電話'] || '-');
-  const today  = new Date().toLocaleDateString('zh-TW');
-  const total  = String(fields['總計金額'] || fields['品項總計'] || '');
-  const pipeFee = String(fields['管線材料費'] || '-');
-  const bCount = parseInt(String(fields['品牌冷氣數量'] || '0'));
-  const bPrice = parseInt(String(fields['品牌冷氣單價'] || '0'));
-  const pCount = parseInt(String(fields['管線數量'] || '0'));
-  const pPrice = parseInt(String(fields['管線單價'] || '0'));
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 20, info: { Title: '冷氣工程報價單' } });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
 
-  // Header 深藍底白字
-  page.drawRectangle({ x: 0, y: H - 50, width: W, height: 50, color: rgb(0.10, 0.24, 0.37) });
-  page.drawText('冷氣工程報價單', { x: 20, y: H - 32, size: 18, font, color: rgb(1,1,1) });
-  page.drawText(`日期：${today}`, { x: 440, y: H - 22, size: 9, font, color: rgb(1,1,1) });
-  page.drawText('PocketPro 麥好室自動化系統', { x: 20, y: H - 46, size: 8, font, color: rgb(0.8,0.8,0.8) });
+    // 註冊中文字體（pdfkit 會自動處理 OTF）
+    doc.registerFont('NotoSansTC', fontBytes, 'NotoSansTC');
+    doc.font('NotoSansTC');
 
-  let y = H - 70;
+    const brand   = String(fields['品牌'] || '（未指定）');
+    const client  = String(fields['客戶名稱'] || '-');
+    const project = String(fields['建案名稱'] || '-');
+    const sales   = String(fields['業務人員'] || '-');
+    const phone   = String(fields['電話'] || '-');
+    const today   = new Date().toLocaleDateString('zh-TW');
+    const total   = String(fields['總計金額'] || fields['品項總計'] || '');
+    const pipeFee = String(fields['管線材料費'] || '-');
+    const bCount  = parseInt(String(fields['品牌冷氣數量'] || '0'));
+    const bPrice  = parseInt(String(fields['品牌冷氣單價'] || '0'));
+    const pCount  = parseInt(String(fields['管線數量'] || '0'));
+    const pPrice  = parseInt(String(fields['管線單價'] || '0'));
 
-  // Section: 基本資訊
-  page.drawRectangle({ x: 15, y: y, width: W - 30, height: 6, color: rgb(0.94, 0.96, 0.98) });
-  page.drawText('【 基本資訊 】', { x: 20, y: y + 1, size: 8, font, color: rgb(0.5,0.5,0.5) });
-  y -= 18;
-  const infoRows: [string,string][] = [['客戶名稱', client],['建案名稱', project],['業務人員', sales],['電話', phone]];
-  for (const [label, val] of infoRows) {
-    page.drawText(`${label}：`, { x: 20, y, size: 9, font, color: rgb(0,0,0) });
-    page.drawText(val, { x: 75, y, size: 9, font, color: rgb(0,0,0) });
-    y -= 11;
-  }
+    // Header
+    doc.rect(0, 0, 210, 40).fill('#1a3c5e');
+    doc.fillColor('#ffffff').fontSize(16);
+    doc.text('冷氣工程報價單', 20, 12);
+    doc.fontSize(9).text(`日期：${today}`, 150, 12);
+    doc.text('PocketPro 麥好室自動化系統', 20, 28);
 
-  y -= 10;
-  // Section: 報價品項
-  page.drawRectangle({ x: 15, y: y, width: W - 30, height: 6, color: rgb(0.94, 0.96, 0.98) });
-  page.drawText('【 報價品項 】', { x: 20, y: y + 1, size: 8, font, color: rgb(0.5,0.5,0.5) });
-  y -= 16;
-  page.drawText(`• ${brand} 分離式冷氣`, { x: 20, y, size: 9, font, color: rgb(0,0,0) }); y -= 11;
-  if (bCount > 0) { page.drawText(`  數量：${bCount} 台`, { x: 25, y, size: 9, font, color: rgb(0,0,0) }); y -= 11; }
-  if (bCount > 0 && bPrice > 0) {
-    page.drawText(`  單價：$${bPrice.toLocaleString()} / 台`, { x: 25, y, size: 9, font, color: rgb(0,0,0) }); y -= 11;
-    page.drawText(`  小計：$${(bCount * bPrice).toLocaleString()}`, { x: 25, y, size: 9, font, color: rgb(0,0,0) }); y -= 11;
-  }
-  y -= 4;
-  page.drawText(`• 管線材料費：${pipeFee}`, { x: 20, y, size: 9, font, color: rgb(0,0,0) }); y -= 11;
-  if (pCount > 0 && pPrice > 0) {
-    page.drawText(`  數量：${pCount} / 單價：$${pPrice.toLocaleString()} / 小計：$${(pCount * pPrice).toLocaleString()}`, { x: 25, y, size: 9, font, color: rgb(0,0,0) }); y -= 11;
-  }
+    let y = 55;
+    doc.fillColor('#f0f4f8').rect(15, y, 180, 6).fill();
+    doc.fillColor('#666666').fontSize(8).text('【 基本資訊 】', 20, y + 1.5);
+    y += 14;
+    doc.fillColor('#000000').fontSize(9);
+    doc.text(`客戶名稱：${client}`, 20, y);
+    doc.text(`建案名稱：${project}`, 120, y);
+    y += 10;
+    doc.text(`業務人員：${sales}`, 20, y);
+    doc.text(`電話：${phone}`, 120, y);
+    y += 14;
 
-  if (total) {
-    const n = parseInt(total).toLocaleString();
-    page.drawRectangle({ x: 380, y: y - 4, width: 180, height: 22, color: rgb(0.10, 0.24, 0.37) });
-    page.drawText(`合計：$${n}`, { x: 385, y, size: 11, font, color: rgb(1,1,1) });
-    y -= 24;
-  }
+    doc.fillColor('#f0f4f8').rect(15, y, 180, 6).fill();
+    doc.fillColor('#666666').fontSize(8).text('【 報價品項 】', 20, y + 1.5);
+    y += 14;
+    doc.fillColor('#000000').fontSize(9);
+    doc.text(`• ${brand} 分離式冷氣`, 20, y); y += 10;
+    if (bCount > 0) { doc.text(`  數量：${bCount} 台`, 25, y); y += 10; }
+    if (bCount > 0 && bPrice > 0) {
+      doc.text(`  單價：$${bPrice.toLocaleString()} / 台`, 25, y); y += 10;
+      doc.text(`  小計：$${(bCount * bPrice).toLocaleString()}`, 25, y); y += 10;
+    }
+    doc.text(`• 管線材料費：${pipeFee}`, 20, y); y += 10;
+    if (pCount > 0 && pPrice > 0) {
+      doc.text(`  數量：${pCount} / 單價：$${pPrice.toLocaleString()} / 小計：$${(pCount * pPrice).toLocaleString()}`, 25, y); y += 10;
+    }
 
-  y -= 8;
-  const notes = ['※ 施工前請確認現場管線配置是否符合規範','※ 所有費用不含稅金，如需發票請另行告知','※ 此報價單僅供參考，實際費用以現場估價為準'];
-  for (const note of notes) { page.drawText(note, { x: 20, y, size: 7, font, color: rgb(0.5,0.5,0.5) }); y -= 10; }
+    if (total) {
+      const n = parseInt(total).toLocaleString();
+      doc.rect(130, y, 65, 18).fill('#1a3c5e');
+      doc.fillColor('#ffffff').fontSize(11).text(`合計：$${n}`, 133, y + 3.5);
+      y += 24;
+    }
 
-  y -= 14;
-  page.drawText('業務簽名：________________', { x: 20, y, size: 9, font, color: rgb(0,0,0) });
-  page.drawText('客戶確認：________________', { x: 380, y, size: 9, font, color: rgb(0,0,0) });
+    y += 6;
+    doc.fontSize(7).fillColor('#888888');
+    doc.text('※ 施工前請確認現場管線配置是否符合規範', 20, y); y += 9;
+    doc.text('※ 所有費用不含稅金，如需發票請另行告知', 20, y); y += 9;
+    doc.text('※ 此報價單僅供參考，實際費用以現場估價為準', 20, y); y += 18;
+    doc.fontSize(9).fillColor('#000000');
+    doc.text('業務簽名：________________', 20, y);
+    doc.text('客戶確認：________________', 120, y);
 
-  const pdfBytes = await pdfDoc.save();
-  return Buffer.from(pdfBytes);
+    doc.end();
+  });
 }
 
 // ==================== 主程式 ====================

@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm run vercel-build",
+  "installCommand": "npm install",
+  "framework": null,
+  "functions": {
+    "api/lark-webhook.ts": {
+      "runtime": "@vercel/node@3.0.0"
+    }
+  }
+}
