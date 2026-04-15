@@ -176,8 +176,8 @@ async function getChineseFontBytes(): Promise<Buffer> {
 
   // 嘗試從 CDN 下載
   const urls = [
-    'https://cdn.jsdelivr.net/gh/erwindre/CJKFonts@master/NotoSansTC-Regular.otf',
-    'https://cdn.jsdelivr.net/npm/noto-sans-cjk-tc@1.0.0/fonts/NotoSansTC-Regular.otf',
+    'https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf',
+    'https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf',
   ];
 
   for (const url of urls) {
