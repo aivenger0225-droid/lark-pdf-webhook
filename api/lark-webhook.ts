@@ -182,15 +182,15 @@ async function generatePDFBuffer(fields: Record<string, unknown>): Promise<Buffe
     const today  = new Date().toLocaleDateString('zh-TW');
 
     doc.rect(0, 0, 210, 40).fill('#1a3c5e');
-    doc.fillColor('#fff').fontSize(16).font('Helvetica-Bold');
+    doc.fillColor('#ffffff').fontSize(16).font('Helvetica-Bold');
     doc.text('冷氣工程報價單', 20, 12);
     doc.fontSize(9).font('Helvetica').text(`日期：${today}`, 150, 12);
     doc.text('PocketPro 麥好室自動化系統', 20, 28);
 
     let y = 55;
-    doc.setFillColor('#f0f4f8').rect(15, y, 180, 6).fill();
-    doc.fillColor(100).fontSize(8).text('【 基本資訊 】', 20, y + 1.5);
-    y += 14; doc.fillColor(0).fontSize(9);
+    doc.fillColor('#f0f4f8').rect(15, y, 180, 6).fill();
+    doc.fillColor('#666666').fontSize(8).text('【 基本資訊 】', 20, y + 1.5);
+    y += 14; doc.fillColor('#000000').fontSize(9);
     const rows: [string,string][] = [
       ['客戶名稱', client], ['建案名稱', project],
       ['業務人員', sales], ['電話', String(fields['電話'] || '-')]
@@ -206,9 +206,9 @@ async function generatePDFBuffer(fields: Record<string, unknown>): Promise<Buffe
     }
 
     y += 8;
-    doc.setFillColor('#f0f4f8').rect(15, y, 180, 6).fill();
-    doc.fillColor(100).fontSize(8).text('【 報價品項 】', 20, y + 1.5);
-    y += 14; doc.fillColor(0).fontSize(9);
+    doc.fillColor('#f0f4f8').rect(15, y, 180, 6).fill();
+    doc.fillColor('#666666').fontSize(8).text('【 報價品項 】', 20, y + 1.5);
+    y += 14; doc.fillColor('#000000').fontSize(9);
 
     const bCount = parseInt(String(fields['品牌冷氣數量'] || '0'));
     const bPrice = parseInt(String(fields['品牌冷氣單價'] || '0'));
@@ -231,18 +231,18 @@ async function generatePDFBuffer(fields: Record<string, unknown>): Promise<Buffe
     const total = String(fields['總計金額'] || fields['品項總計'] || '');
     if (total) {
       y += 5;
-      doc.setFillColor('#1a3c5e').rect(130, y - 5, 65, 18).fill();
-      doc.fillColor('#fff').fontSize(11).font('Helvetica-Bold');
+      doc.fillColor('#1a3c5e').rect(130, y - 5, 65, 18).fill();
+      doc.fillColor('#ffffff').fontSize(11).font('Helvetica-Bold');
       doc.text(`合計：$${parseInt(total).toLocaleString()}`, 133, y);
       y += 20;
     }
 
     y += 5;
-    doc.setFontSize(8).fillColor(120).font('Helvetica');
+    doc.fontSize(8).fillColor('#787878').font('Helvetica');
     ['※ 施工前請確認現場管線配置是否符合規範', '※ 所有費用不含稅金，如需發票請另行告知', '※ 此報價單僅供參考，實際費用以現場估價為準'].forEach(t => { doc.text(t, 20, y); y += 6; });
 
     y += 15;
-    doc.setFontSize(9).fillColor(0);
+    doc.fontSize(9).fillColor('#000000');
     doc.text('業務簽名：________________', 20, y);
     doc.text('客戶確認：________________', 120, y);
 
