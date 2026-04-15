@@ -60,15 +60,12 @@ async function getDriveAccessToken(): Promise<string> {
     exp: Math.floor(Date.now() / 1000) + 3600
   })).toString('base64url');
   const signed = header + '.' + payload;
-
   const pemKey = Buffer.from(
-    SERVICE_ACCOUNT_KEY.replace(/-----BEGIN PRIVATE KEY-----/,'').replace(/-----END PRIVATE KEY-----/,'').replace(/\n/g,''),
-    'base64'
+    SERVICE_ACCOUNT_KEY.replace(/-----BEGIN PRIVATE KEY-----/,'').replace(/-----END PRIVATE KEY-----/,'').replace(/\n/g,''), 'base64'
   );
   const signKey = await crypto.subtle.importKey('pkcs8', pemKey, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
   const sig = Buffer.from(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', signKey, Buffer.from(signed))).toString('base64url');
   const jwt = signed + '.' + sig;
-
   const resp = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -93,16 +90,12 @@ async function uploadPDFToDrive(pdfBuffer: Buffer, pdfName: string): Promise<str
     body.set(part2, off); off += part2.byteLength;
     body.set(part3, off); off += part3.byteLength;
     body.set(part4, off);
-
     const res = await fetch(
       'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',
       { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` }, body }
     );
     const data = await res.json();
-    if (data.id) {
-      console.log('[Drive] Done:', data.webViewLink || `https://drive.google.com/file/d/${data.id}/view`);
-      return data.webViewLink || `https://drive.google.com/file/d/${data.id}/view`;
-    }
+    if (data.id) return data.webViewLink || `https://drive.google.com/file/d/${data.id}/view`;
     console.error('[Drive] Error:', JSON.stringify(data));
     return null;
   } catch (e) { console.error('[Drive] Error:', e); return null; }
@@ -116,7 +109,7 @@ async function sendEmail(pdfBuffer: Buffer, pdfName: string, clientName: string)
     const { error } = await resend.emails.send({
       from: EMAIL_FROM,
       to: EMAIL_TO,
-      subject: `📋 麥好室冷氣報價單｜${clientName}｜${today}`,
+      subject: `❄️ 麥好室冷氣報價單｜${clientName}｜${today}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <div style="background: #1a3c5e; color: white; padding: 20px; text-align: center;">
@@ -127,41 +120,19 @@ async function sendEmail(pdfBuffer: Buffer, pdfName: string, clientName: string)
             <p>您好，</p>
             <p>收到一筆新的冷氣報價單，詳細資料請參閱附件 PDF。</p>
             <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
-              <tr>
-                <td style="padding: 8px 12px; color: #666;">客戶名稱</td>
-                <td style="padding: 8px 12px; font-weight: bold;">${clientName}</td>
-              </tr>
-              <tr style="background: #f0f4f8;">
-                <td style="padding: 8px 12px; color: #666;">報價日期</td>
-                <td style="padding: 8px 12px;">${today}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 12px; color: #666;">PDF 附件</td>
-                <td style="padding: 8px 12px;">📎 ${pdfName}</td>
-              </tr>
+              <tr><td style="padding: 8px 12px; color: #666;">客戶名稱</td><td style="padding: 8px 12px; font-weight: bold;">${clientName}</td></tr>
+              <tr style="background: #f0f4f8;"><td style="padding: 8px 12px; color: #666;">報價日期</td><td style="padding: 8px 12px;">${today}</td></tr>
+              <tr><td style="padding: 8px 12px; color: #666;">PDF 附件</td><td style="padding: 8px 12px;">📎 ${pdfName}</td></tr>
             </table>
-            <p style="color: #888; font-size: 12px; margin-top: 20px;">
-              此為系統自動發送，請勿直接回覆。如有問題請聯繫管管數位。
-            </p>
+            <p style="color: #888; font-size: 12px; margin-top: 20px;">此為系統自動發送，請勿直接回覆。如有問題請聯繫管管數位。</p>
           </div>
         </div>
       `,
-      attachments: [
-        {
-          filename: pdfName,
-          content: pdfBuffer.toString('base64'),
-        },
-      ],
+      attachments: [{ filename: pdfName, content: pdfBuffer.toString('base64') }],
     });
-
-    if (error) {
-      console.error('[Email] Resend error:', error);
-    } else {
-      console.log('[Email] Sent successfully to', EMAIL_TO);
-    }
-  } catch (e) {
-    console.error('[Email] Exception:', e);
-  }
+    if (error) console.error('[Email] Resend error:', error);
+    else console.log('[Email] Sent to', EMAIL_TO);
+  } catch (e) { console.error('[Email] Exception:', e); }
 }
 
 // ==================== Lark ====================
@@ -204,11 +175,11 @@ async function generatePDFBuffer(fields: Record<string, unknown>): Promise<Buffe
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    const brand = (fields['品牌'] as string) || '（未指定）';
+    const brand  = (fields['品牌'] as string) || '（未指定）';
     const client = String(fields['客戶名稱'] || '-');
     const project = String(fields['建案名稱'] || '-');
-    const sales = String(fields['業務人員'] || '-');
-    const today = new Date().toLocaleDateString('zh-TW');
+    const sales  = String(fields['業務人員'] || '-');
+    const today  = new Date().toLocaleDateString('zh-TW');
 
     doc.rect(0, 0, 210, 40).fill('#1a3c5e');
     doc.fillColor('#fff').fontSize(16).font('Helvetica-Bold');
@@ -220,7 +191,10 @@ async function generatePDFBuffer(fields: Record<string, unknown>): Promise<Buffe
     doc.setFillColor('#f0f4f8').rect(15, y, 180, 6).fill();
     doc.fillColor(100).fontSize(8).text('【 基本資訊 】', 20, y + 1.5);
     y += 14; doc.fillColor(0).fontSize(9);
-    const rows: [string,string][] = [['客戶名稱', client], ['建案名稱', project], ['業務人員', sales], ['電話', String(fields['電話'] || '-')]];
+    const rows: [string,string][] = [
+      ['客戶名稱', client], ['建案名稱', project],
+      ['業務人員', sales], ['電話', String(fields['電話'] || '-')]
+    ];
     for (let i = 0; i < rows.length; i += 2) {
       doc.font('Helvetica-Bold').text(`${rows[i][0]}：`, 20, y);
       doc.font('Helvetica').text(rows[i][1], 55, y);
@@ -303,12 +277,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const driveLink = await uploadPDFToDrive(pdfBuffer, pdfName);
     await sendEmail(pdfBuffer, pdfName, clientName);
 
-    return res.status(200).json({
-      success: true,
-      pdfName,
-      driveLink: driveLink || null,
-      record_id: record_id || null
-    });
+    return res.status(200).json({ success: true, pdfName, driveLink: driveLink || null });
   } catch (err) {
     console.error('[Webhook] Error:', err);
     return res.status(500).json({ success: false, error: String(err) });
