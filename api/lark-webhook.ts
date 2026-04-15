@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { Resend } from 'resend';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import * as fontkit from 'fontkit';
 
 // ==================== 設定 ====================
 const LARK_APP_ID     = process.env.LARK_APP_ID     || 'cli_a95e55ea22a19e18';
@@ -208,8 +209,10 @@ async function generatePDFBuffer(fields: Record<string, unknown>): Promise<Buffe
   let font;
   try {
     const fontBytes = await getChineseFontBytes();
+    pdfDoc.registerFontkit(fontkit as any);
     font = await pdfDoc.embedFont(fontBytes);
-  } catch {
+  } catch (e) {
+    console.error('[Font] Embed failed:', e);
     font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   }
 
