@@ -1,5 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { Resend } from 'resend';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 // ==================== 設定 ====================
 const LARK_APP_ID     = process.env.LARK_APP_ID     || 'cli_a95e55ea22a19e18';
@@ -36,7 +38,7 @@ b/dhyC4PkPcwTOfYi6GadLI2nR/PBlfwVY+/b6AWs04TyfBqrFmNjcYdAoGAAxAA
 o0i1XRNlRuZnVu2M4x6AekM/jddQktHQtl6ivvx/gWzyIGoDMRhXmOUu5xAz23xm
 6nkcB1bzyYHGngc6S7K4V1cIcuFhGoEPlNRBzY+CcnR0Y6Wv6t8bD00dwofgAOSH
 UHnHVWig9QYC7oGno5k6pVC0TUhVgZ+AtkQzHhECgYA+C91PBv6MxJ6A/TSUjbWh
-EECnzio31464VQJn2zLNSeQp8kdfkKQ+jaBBF8c6to8HYTpEuBB6Zib4xp49ZdhC
+EECnzio31464VQJn2zLNSeQp8kdfkQ+jaBBF8c6to8HYTpEuBB6Zib4xp49ZdhC
 9s4hIrq8oO51SQmYxRbWgcUrnEI6b+dI/QQjHxHVsOkC5iKsit25iFqNP7mA0Bfl
 EaaIeswNF+nhhoBbOpLeeQ==
 -----END PRIVATE KEY-----`;
@@ -61,7 +63,8 @@ async function getDriveAccessToken(): Promise<string> {
   })).toString('base64url');
   const signed = header + '.' + payload;
   const pemKey = Buffer.from(
-    SERVICE_ACCOUNT_KEY.replace(/-----BEGIN PRIVATE KEY-----/,'').replace(/-----END PRIVATE KEY-----/,'').replace(/\n/g,''), 'base64'
+    SERVICE_ACCOUNT_KEY.replace(/-----BEGIN PRIVATE KEY-----/,'').replace(/-----END PRIVATE KEY-----/,'').replace(/\n/g,''),
+    'base64'
   );
   const signKey = await crypto.subtle.importKey('pkcs8', pemKey, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
   const sig = Buffer.from(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', signKey, Buffer.from(signed))).toString('base64url');
@@ -165,9 +168,9 @@ async function updateStatus(token: string, id: string): Promise<void> {
   } catch { /* ignore */ }
 }
 
-// ==================== PDF ====================
+// ==================== PDF（使用嵌入中文字型）====================
 async function generatePDFBuffer(fields: Record<string, unknown>): Promise<Buffer> {
-  const { default: PDFDocument } = await import('pdfkit');
+  const PDFDocument = (await import('pdfkit')).default;
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 20 });
     const chunks: Buffer[] = [];
@@ -175,76 +178,83 @@ async function generatePDFBuffer(fields: Record<string, unknown>): Promise<Buffe
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
+    // 載入中文字型
+    const fontPath = join(__dirname, '..', 'NotoSansTC.otf');
+    const fontBuffer = readFileSync(fontPath);
+    doc.registerFont('NotoSansTC', fontBuffer);
+    doc.font('NotoSansTC');
+
     const brand  = (fields['品牌'] as string) || '（未指定）';
     const client = String(fields['客戶名稱'] || '-');
     const project = String(fields['建案名稱'] || '-');
     const sales  = String(fields['業務人員'] || '-');
+    const phone  = String(fields['電話'] || '-');
     const today  = new Date().toLocaleDateString('zh-TW');
-
-    doc.rect(0, 0, 210, 40).fill('#1a3c5e');
-    doc.fillColor('#ffffff').fontSize(16).font('Helvetica-Bold');
-    doc.text('冷氣工程報價單', 20, 12);
-    doc.fontSize(9).font('Helvetica').text(`日期：${today}`, 150, 12);
-    doc.text('PocketPro 麥好室自動化系統', 20, 28);
-
-    let y = 55;
-    doc.fillColor('#f0f4f8').rect(15, y, 180, 6).fill();
-    doc.fillColor('#666666').fontSize(8).text('【 基本資訊 】', 20, y + 1.5);
-    y += 14; doc.fillColor('#000000').fontSize(9);
-    const rows: [string,string][] = [
-      ['客戶名稱', client], ['建案名稱', project],
-      ['業務人員', sales], ['電話', String(fields['電話'] || '-')]
-    ];
-    for (let i = 0; i < rows.length; i += 2) {
-      doc.font('Helvetica-Bold').text(`${rows[i][0]}：`, 20, y);
-      doc.font('Helvetica').text(rows[i][1], 55, y);
-      if (rows[i+1]) {
-        doc.font('Helvetica-Bold').text(`${rows[i+1][0]}：`, 120, y);
-        doc.font('Helvetica').text(rows[i+1][1], 145, y);
-      }
-      y += 8;
-    }
-
-    y += 8;
-    doc.fillColor('#f0f4f8').rect(15, y, 180, 6).fill();
-    doc.fillColor('#666666').fontSize(8).text('【 報價品項 】', 20, y + 1.5);
-    y += 14; doc.fillColor('#000000').fontSize(9);
-
+    const total  = String(fields['總計金額'] || fields['品項總計'] || '');
+    const pipe   = String(fields['管線材料費'] || '-');
     const bCount = parseInt(String(fields['品牌冷氣數量'] || '0'));
     const bPrice = parseInt(String(fields['品牌冷氣單價'] || '0'));
-    doc.text(`• ${brand} 分離式冷氣`, 20, y); y += 7;
-    if (bCount > 0) { doc.text(`  數量：${bCount} 台`, 25, y); y += 7; }
-    if (bCount > 0 && bPrice > 0) {
-      doc.text(`  單價：$${bPrice.toLocaleString()} / 台`, 25, y); y += 7;
-      doc.font('Helvetica-Bold').text(`  小計：$${(bCount * bPrice).toLocaleString()}`, 25, y); y += 7;
-    }
-    doc.font('Helvetica');
-
-    const pipe = String(fields['管線材料費'] || '-');
     const pCount = parseInt(String(fields['管線數量'] || '0'));
     const pPrice = parseInt(String(fields['管線單價'] || '0'));
-    y += 3; doc.text(`• 管線材料費：${pipe}`, 20, y); y += 7;
+
+    const W = 595.28, H = 841.89;
+
+    // 抬頭深藍底
+    doc.rect(0, H - 50, W, 50).fill('#1a3c5e');
+    doc.fillColor('#ffffff').fontSize(18).text('冷氣工程報價單', 20, H - 35, { lineBreak: false });
+    doc.fontSize(9).text(`日期：${today}`, 430, H - 35);
+    doc.fontSize(8).text('PocketPro 麥好室自動化系統', 20, H - 47);
+
+    let y = H - 70;
+
+    // 基本資訊區塊
+    doc.fillColor('#f0f4f8').rect(15, y, W - 30, 6).fill();
+    doc.fillColor('#666666').fontSize(8).text('【 基本資訊 】', 20, y + 1);
+    y -= 18;
+    doc.fillColor('#000000').fontSize(10);
+    const info: [string,string][] = [['客戶名稱', client],['建案名稱', project],['業務人員', sales],['電話', phone]];
+    for (let i = 0; i < info.length; i += 2) {
+      doc.font('NotoSansTC').text(`${info[i][0]}：${info[i][1]}`, 20, y, { width: 240 });
+      if (info[i+1]) doc.text(`${info[i+1][0]}：${info[i+1][1]}`, 290, y, { width: 240 });
+      y -= 12;
+    }
+
+    y -= 8;
+    // 報價品項區塊
+    doc.fillColor('#f0f4f8').rect(15, y, W - 30, 6).fill();
+    doc.fillColor('#666666').fontSize(8).text('【 報價品項 】', 20, y + 1);
+    y -= 16;
+    doc.fillColor('#000000').fontSize(10);
+    doc.text(`• ${brand} 分離式冷氣`, 20, y); y -= 12;
+    if (bCount > 0) { doc.fontSize(9).text(`  數量：${bCount} 台`, 25, y); y -= 12; }
+    if (bCount > 0 && bPrice > 0) {
+      doc.text(`  單價：$${bPrice.toLocaleString()} / 台`, 25, y); y -= 12;
+      doc.font('NotoSansTC').text(`  小計：$${(bCount * bPrice).toLocaleString()}`, 25, y); y -= 12;
+    }
+    doc.font('NotoSansTC').text(`• 管線材料費：${pipe}`, 20, y); y -= 12;
     if (pCount > 0 && pPrice > 0) {
-      doc.text(`  數量：${pCount} / 單價：$${pPrice.toLocaleString()} / 小計：$${(pCount * pPrice).toLocaleString()}`, 25, y); y += 7;
+      doc.fontSize(9).text(`  數量：${pCount} / 單價：$${pPrice.toLocaleString()} / 小計：$${(pCount * pPrice).toLocaleString()}`, 25, y); y -= 12;
     }
 
-    const total = String(fields['總計金額'] || fields['品項總計'] || '');
     if (total) {
-      y += 5;
-      doc.fillColor('#1a3c5e').rect(130, y - 5, 65, 18).fill();
-      doc.fillColor('#ffffff').fontSize(11).font('Helvetica-Bold');
-      doc.text(`合計：$${parseInt(total).toLocaleString()}`, 133, y);
-      y += 20;
+      y -= 4;
+      doc.rect(380, y - 4, W - 395, 22).fill('#1a3c5e');
+      doc.fillColor('#ffffff').fontSize(11).text(`合計：$${parseInt(total).toLocaleString()}`, 385, y);
+      y -= 28;
     }
 
-    y += 5;
-    doc.fontSize(8).fillColor('#787878').font('Helvetica');
-    ['※ 施工前請確認現場管線配置是否符合規範', '※ 所有費用不含稅金，如需發票請另行告知', '※ 此報價單僅供參考，實際費用以現場估價為準'].forEach(t => { doc.text(t, 20, y); y += 6; });
+    y -= 6;
+    doc.fontSize(7).fillColor('#888888');
+    ['※ 施工前請確認現場管線配置是否符合規範',
+      '※ 所有費用不含稅金，如需發票請另行告知',
+      '※ 此報價單僅供參考，實際費用以現場估價為準'].forEach(t => {
+      doc.text(t, 20, y); y -= 9;
+    });
 
-    y += 15;
-    doc.fontSize(9).fillColor('#000000');
+    y -= 12;
+    doc.fontSize(10).fillColor('#000000');
     doc.text('業務簽名：________________', 20, y);
-    doc.text('客戶確認：________________', 120, y);
+    doc.text('客戶確認：________________', 380, y);
 
     doc.end();
   });
